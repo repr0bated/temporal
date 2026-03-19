@@ -67,3 +67,206 @@ func Test_GetType(t *testing.T) {
 	r.ErrorIs(err, sadefs.ErrInvalidName)
 	r.Equal(enumspb.INDEXED_VALUE_TYPE_UNSPECIFIED, ivt)
 }
+
+func Test_WithPredefinedSearchAttributes(t *testing.T) {
+	r := require.New(t)
+
+	customSA := map[string]enumspb.IndexedValueType{
+		"CustomKey": enumspb.INDEXED_VALUE_TYPE_TEXT,
+	}
+	base := NewNameTypeMap(customSA)
+
+	// Baseline: default predefined includes TemporalChangeVersion from sadefs.Predefined().
+	r.True(base.IsDefined("TemporalChangeVersion"))
+	ivt, err := base.GetType("TemporalChangeVersion")
+	r.NoError(err)
+	r.Equal(enumspb.INDEXED_VALUE_TYPE_KEYWORD_LIST, ivt)
+
+	// Custom attributes are preserved.
+	ivt, err = base.GetType("CustomKey")
+	r.NoError(err)
+	r.Equal(enumspb.INDEXED_VALUE_TYPE_TEXT, ivt)
+
+	// Override predefined with a custom set that does NOT include TemporalChangeVersion.
+	overriddenPredefined := map[string]enumspb.IndexedValueType{
+		"MyPredefined": enumspb.INDEXED_VALUE_TYPE_DOUBLE,
+	}
+	overridden := base.WithPredefinedSearchAttributes(overriddenPredefined)
+
+	// New predefined attribute is resolved.
+	ivt, err = overridden.GetType("MyPredefined")
+	r.NoError(err)
+	r.Equal(enumspb.INDEXED_VALUE_TYPE_DOUBLE, ivt)
+
+	// TemporalChangeVersion is no longer found via predefined (only system SAs remain).
+	r.False(overridden.IsDefined("TemporalChangeVersion"))
+
+	// Custom attributes are still preserved after override.
+	ivt, err = overridden.GetType("CustomKey")
+	r.NoError(err)
+	r.Equal(enumspb.INDEXED_VALUE_TYPE_TEXT, ivt)
+
+	// System search attributes (e.g. RunId) are still accessible.
+	ivt, err = overridden.GetType("RunId")
+	r.NoError(err)
+	r.Equal(enumspb.INDEXED_VALUE_TYPE_KEYWORD, ivt)
+
+	// Original base map is not mutated.
+	r.True(base.IsDefined("TemporalChangeVersion"))
+	r.False(base.IsDefined("MyPredefined"))
+}
+
+func Test_MergeNameTypeMaps(t *testing.T) {
+	t.Run("DisjointMaps", func(t *testing.T) {
+		r := require.New(t)
+		a := NameTypeMap{
+			predefinedSearchAttributes: map[string]enumspb.IndexedValueType{
+				"PredA": enumspb.INDEXED_VALUE_TYPE_KEYWORD,
+			},
+			customSearchAttributes: map[string]enumspb.IndexedValueType{
+				"CustomA": enumspb.INDEXED_VALUE_TYPE_INT,
+			},
+		}
+		b := NameTypeMap{
+			predefinedSearchAttributes: map[string]enumspb.IndexedValueType{
+				"PredB": enumspb.INDEXED_VALUE_TYPE_BOOL,
+			},
+			customSearchAttributes: map[string]enumspb.IndexedValueType{
+				"CustomB": enumspb.INDEXED_VALUE_TYPE_DOUBLE,
+			},
+		}
+
+		merged := MergeNameTypeMaps(a, b)
+
+		ivt, err := merged.GetType("PredA")
+		r.NoError(err)
+		r.Equal(enumspb.INDEXED_VALUE_TYPE_KEYWORD, ivt)
+
+		ivt, err = merged.GetType("PredB")
+		r.NoError(err)
+		r.Equal(enumspb.INDEXED_VALUE_TYPE_BOOL, ivt)
+
+		ivt, err = merged.GetType("CustomA")
+		r.NoError(err)
+		r.Equal(enumspb.INDEXED_VALUE_TYPE_INT, ivt)
+
+		ivt, err = merged.GetType("CustomB")
+		r.NoError(err)
+		r.Equal(enumspb.INDEXED_VALUE_TYPE_DOUBLE, ivt)
+	})
+
+	t.Run("SecondOverwritesFirst", func(t *testing.T) {
+		r := require.New(t)
+		a := NameTypeMap{
+			predefinedSearchAttributes: map[string]enumspb.IndexedValueType{
+				"Shared": enumspb.INDEXED_VALUE_TYPE_KEYWORD,
+			},
+			customSearchAttributes: map[string]enumspb.IndexedValueType{
+				"SharedCustom": enumspb.INDEXED_VALUE_TYPE_INT,
+			},
+		}
+		b := NameTypeMap{
+			predefinedSearchAttributes: map[string]enumspb.IndexedValueType{
+				"Shared": enumspb.INDEXED_VALUE_TYPE_BOOL,
+			},
+			customSearchAttributes: map[string]enumspb.IndexedValueType{
+				"SharedCustom": enumspb.INDEXED_VALUE_TYPE_DOUBLE,
+			},
+		}
+
+		merged := MergeNameTypeMaps(a, b)
+
+		// b's values win on conflict.
+		ivt, err := merged.GetType("Shared")
+		r.NoError(err)
+		r.Equal(enumspb.INDEXED_VALUE_TYPE_BOOL, ivt)
+
+		ivt, err = merged.GetType("SharedCustom")
+		r.NoError(err)
+		r.Equal(enumspb.INDEXED_VALUE_TYPE_DOUBLE, ivt)
+	})
+
+	t.Run("DoesNotMutateInputs", func(t *testing.T) {
+		r := require.New(t)
+		a := NameTypeMap{
+			predefinedSearchAttributes: map[string]enumspb.IndexedValueType{
+				"PredA": enumspb.INDEXED_VALUE_TYPE_KEYWORD,
+			},
+			customSearchAttributes: map[string]enumspb.IndexedValueType{
+				"CustomA": enumspb.INDEXED_VALUE_TYPE_INT,
+			},
+		}
+		b := NameTypeMap{
+			predefinedSearchAttributes: map[string]enumspb.IndexedValueType{
+				"PredB": enumspb.INDEXED_VALUE_TYPE_BOOL,
+			},
+			customSearchAttributes: map[string]enumspb.IndexedValueType{
+				"CustomB": enumspb.INDEXED_VALUE_TYPE_DOUBLE,
+			},
+		}
+
+		_ = MergeNameTypeMaps(a, b)
+
+		// a should not contain b's entries.
+		r.Len(a.predefinedSearchAttributes, 1)
+		r.Len(a.customSearchAttributes, 1)
+		_, hasPredB := a.predefinedSearchAttributes["PredB"]
+		r.False(hasPredB)
+		_, hasCustomB := a.customSearchAttributes["CustomB"]
+		r.False(hasCustomB)
+	})
+
+	t.Run("EmptyFirstMap", func(t *testing.T) {
+		r := require.New(t)
+
+		b := NameTypeMap{
+			predefinedSearchAttributes: map[string]enumspb.IndexedValueType{
+				"PredB": enumspb.INDEXED_VALUE_TYPE_BOOL,
+			},
+			customSearchAttributes: map[string]enumspb.IndexedValueType{
+				"CustomB": enumspb.INDEXED_VALUE_TYPE_DOUBLE,
+			},
+		}
+		empty := NameTypeMap{}
+
+		// Merge with empty first map preserves second.
+		merged := MergeNameTypeMaps(empty, b)
+		ivt, err := merged.GetType("PredB")
+		r.NoError(err)
+		r.Equal(enumspb.INDEXED_VALUE_TYPE_BOOL, ivt)
+		ivt, err = merged.GetType("CustomB")
+		r.NoError(err)
+		r.Equal(enumspb.INDEXED_VALUE_TYPE_DOUBLE, ivt)
+	})
+
+	t.Run("EmptySecondMap", func(t *testing.T) {
+		r := require.New(t)
+
+		a := NameTypeMap{
+			predefinedSearchAttributes: map[string]enumspb.IndexedValueType{
+				"PredA": enumspb.INDEXED_VALUE_TYPE_KEYWORD,
+			},
+			customSearchAttributes: map[string]enumspb.IndexedValueType{
+				"CustomA": enumspb.INDEXED_VALUE_TYPE_INT,
+			},
+		}
+		empty := NameTypeMap{}
+
+		// Merge with empty second map preserves first.
+		merged := MergeNameTypeMaps(a, empty)
+		ivt, err := merged.GetType("PredA")
+		r.NoError(err)
+		r.Equal(enumspb.INDEXED_VALUE_TYPE_KEYWORD, ivt)
+		ivt, err = merged.GetType("CustomA")
+		r.NoError(err)
+		r.Equal(enumspb.INDEXED_VALUE_TYPE_INT, ivt)
+	})
+
+	t.Run("BothEmpty", func(t *testing.T) {
+		r := require.New(t)
+		empty := NameTypeMap{}
+		merged := MergeNameTypeMaps(empty, empty)
+		r.Empty(merged.predefinedSearchAttributes)
+		r.Empty(merged.customSearchAttributes)
+	})
+}
