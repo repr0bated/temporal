@@ -33,7 +33,6 @@ import (
 	taskqueuespb "go.temporal.io/server/api/taskqueue/v1"
 	"go.temporal.io/server/chasm"
 	chasmworkflow "go.temporal.io/server/chasm/lib/workflow"
-	chasmworkflowregistry "go.temporal.io/server/chasm/lib/workflow/workflowregistry"
 	clientmocks "go.temporal.io/server/client"
 	historyclient "go.temporal.io/server/client/history"
 	"go.temporal.io/server/common/clock"
@@ -151,7 +150,7 @@ func (s *adminHandlerSuite) SetupTest() {
 	}
 
 	chasmRegistry := chasm.NewRegistry(s.mockResource.GetLogger())
-	err := chasmRegistry.Register(chasmworkflow.NewLibrary(chasmworkflowregistry.NewRegistry()))
+	err := chasmRegistry.Register(chasmworkflow.NewLibrary(chasmworkflow.NewRegistry()))
 	s.NoError(err)
 
 	args := NewAdminHandlerArgs{
