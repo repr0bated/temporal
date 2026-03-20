@@ -109,18 +109,18 @@ func (o *Operation) StoreOrSelf(ctx chasm.Context) OperationStore {
 }
 
 func (o *Operation) OnNexusOperationStarted(ctx chasm.MutableContext, _ *Operation, operationToken string, _ []*commonpb.Link) error {
-	return transitionStarted.Apply(o, ctx, EventStarted{
+	return TransitionStarted.Apply(o, ctx, EventStarted{
 		OperationToken: operationToken,
 		FromBackingOff: o.Status == nexusoperationpb.OPERATION_STATUS_BACKING_OFF,
 	})
 }
 
 func (o *Operation) OnNexusOperationCompleted(ctx chasm.MutableContext, _ *Operation, _ *commonpb.Payload, _ []*commonpb.Link) error {
-	return transitionSucceeded.Apply(o, ctx, EventSucceeded{})
+	return TransitionSucceeded.Apply(o, ctx, EventSucceeded{})
 }
 
 func (o *Operation) OnNexusOperationFailed(ctx chasm.MutableContext, _ *Operation, _ *failurepb.Failure) error {
-	return transitionFailed.Apply(o, ctx, EventFailed{})
+	return TransitionFailed.Apply(o, ctx, EventFailed{})
 }
 
 func (o *Operation) OnNexusOperationCancelled(ctx chasm.MutableContext, _ *Operation, _ *failurepb.Failure) error {
@@ -128,5 +128,5 @@ func (o *Operation) OnNexusOperationCancelled(ctx chasm.MutableContext, _ *Opera
 }
 
 func (o *Operation) OnNexusOperationTimedOut(ctx chasm.MutableContext, _ *Operation, _ *failurepb.Failure) error {
-	return transitionTimedOut.Apply(o, ctx, EventTimedOut{})
+	return TransitionTimedOut.Apply(o, ctx, EventTimedOut{})
 }
